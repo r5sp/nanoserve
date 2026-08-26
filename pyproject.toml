@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoserve"
+version = "0.1.0"
+description = "A from-scratch LLM inference engine: paged KV cache, continuous batching and speculative decoding in NumPy."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ronit Peswani" }]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "regex>=2023.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
+bench = ["matplotlib>=3.8"]
+# Only used by the optional reference test that compares logits with Hugging Face.
+ref = ["torch", "transformers"]
+
+[project.scripts]
+nanoserve = "nanoserve.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: needs downloaded GPT-2 weights (run with: pytest -m slow)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "NPY"]
+ignore = ["E741"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests", "benchmarks", "scripts"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["regex", "matplotlib.*", "torch", "transformers"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
