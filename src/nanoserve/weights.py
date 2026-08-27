@@ -97,7 +97,9 @@ def weights_from_state_dict(
     sd = {k.removeprefix("transformer."): v for k, v in sd.items()}
 
     def get(key: str) -> NDArray[np.floating]:
-        return np.ascontiguousarray(sd[key], dtype=dtype)
+        # Copy out of the memmap: tensors in a safetensors file are not guaranteed to
+        # be aligned, and unaligned arrays silently fall off the BLAS fast path.
+        return np.array(sd[key], dtype=dtype, order="C", copy=True)
 
     layers = []
     for i in range(config.n_layer):
