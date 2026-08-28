@@ -16,6 +16,7 @@ from collections.abc import Sequence as Seq
 from dataclasses import dataclass, field
 
 import numpy as np
+from numpy.typing import NDArray
 
 from nanoserve.block_manager import BlockManager
 from nanoserve.kv_cache import PagedKVCache, slots_for
@@ -23,6 +24,7 @@ from nanoserve.model import GPT2, SeqInput
 from nanoserve.sampling import SamplingParams, probs_from_logits, sample
 from nanoserve.scheduler import ScheduledSeq, Scheduler, SchedulerConfig
 from nanoserve.sequence import Sequence
+from nanoserve.speculative import Proposal, SpeculativeConfig, make_proposer, rejection_sample
 
 
 @dataclass
@@ -34,6 +36,7 @@ class EngineConfig:
     enable_chunked_prefill: bool = True
     enable_prefix_caching: bool = True
     max_model_len: int | None = None  # defaults to the model's n_positions
+    speculative: SpeculativeConfig | None = None
 
 
 @dataclass
@@ -66,7 +69,9 @@ class EngineStats:
 
 
 class LLMEngine:
-    def __init__(self, model: GPT2, config: EngineConfig | None = None) -> None:
+    def __init__(
+        self, model: GPT2, config: EngineConfig | None = None, draft_model: GPT2 | None = None
+    ) -> None:
         self.model = model
         self.config = config or EngineConfig()
         cfg = self.config
@@ -80,10 +85,20 @@ class LLMEngine:
                 max_num_seqs=cfg.max_num_seqs,
                 max_num_batched_tokens=cfg.max_num_batched_tokens,
                 enable_chunked_prefill=cfg.enable_chunked_prefill,
+                num_lookahead_slots=cfg.speculative.num_speculative_tokens
+                if cfg.speculative
+                else 0,
             ),
             self.block_manager,
             self.max_model_len,
         )
+        self.proposer = None
+        self.uses_draft_kv = False
+        if cfg.speculative is not None:
+            if draft_model is not None and draft_model.config.vocab_size != model.config.vocab_size:
+                raise ValueError("draft and target models must share a vocabulary")
+            self.proposer = make_proposer(cfg.speculative, self.block_manager, draft_model)
+            self.uses_draft_kv = cfg.speculative.method == "draft_model"
         self.stats = EngineStats()
         self._seq_ids = itertools.count()
         self._arrivals = itertools.count()
@@ -112,6 +127,7 @@ class LLMEngine:
             params=params,
             arrival=next(self._arrivals),
             pending_forks=params.n - 1,
+            uses_draft_kv=self.uses_draft_kv,
         )
         self.scheduler.add(seq)
         self.sequences[rid] = [seq]
@@ -136,13 +152,14 @@ class LLMEngine:
             return outputs
 
         scheduled = sched.scheduled
-        inputs = [self._make_input(s) for s in scheduled]
+        proposals = self._propose(sched.decodes)
+        inputs = [self._make_input(s, proposals.get(s.seq.seq_id)) for s in scheduled]
         logits = self.model.forward(inputs, self.cache)
 
         self.stats.num_steps += 1
         self.stats.batch_sizes.append(len(scheduled))
         self.stats.num_prefill_tokens += sum(s.num_tokens for s in sched.prefills)
-        self.stats.num_decode_tokens += sum(s.num_tokens for s in sched.decodes)
+        self.stats.num_decode_tokens += sum(len(i.token_ids) for i in inputs[len(sched.prefills) :])
 
         for s, lg in zip(scheduled, logits, strict=True):
             seq = s.seq
@@ -153,6 +170,10 @@ class LLMEngine:
                     seq.seq_id, seq.token_ids, seq.num_computed_tokens
                 )
                 continue
+            prop = proposals.get(seq.seq_id)
+            if prop is not None:
+                outputs.append(self._verify(seq, prop, lg))
+                continue
             for child in self._fork_children(seq):
                 tok = sample(probs_from_logits(lg[-1], child.params), child.rng)
                 outputs.append(self._append_tokens(child, [tok]))
@@ -162,17 +183,47 @@ class LLMEngine:
         self._record_kv_usage()
         return outputs
 
-    def _make_input(self, s: ScheduledSeq) -> SeqInput:
+    def _make_input(self, s: ScheduledSeq, proposal: Proposal | None) -> SeqInput:
         seq = s.seq
         start = seq.num_computed_tokens
         end = start + s.num_tokens
+        tokens = seq.token_ids[start:end]
+        num_logits = 1 if s.completes else 0
+        if proposal is not None:
+            # Verify all draft tokens in the same forward: logits for every position.
+            tokens = tokens + proposal.tokens
+            end += len(proposal.tokens)
+            num_logits = len(tokens)
         table = self.block_manager.block_tables[seq.seq_id]
-        return SeqInput(
-            token_ids=seq.token_ids[start:end],
-            start_pos=start,
-            slots=slots_for(table, end, self.config.block_size),
-            num_logits=1 if s.completes else 0,
-        )
+        return SeqInput(tokens, start, slots_for(table, end, self.config.block_size), num_logits)
+
+    # -- speculative decoding ---------------------------------------------------------
+    def _propose(self, decodes: list[ScheduledSeq]) -> dict[int, Proposal]:
+        if self.proposer is None:
+            return {}
+        # A parent that still has to fork its n-1 children samples its first token
+        # without speculation so the children can share its prompt blocks.
+        batch = [
+            (s.seq, s.num_lookahead)
+            for s in decodes
+            if s.num_lookahead > 0 and s.seq.pending_forks == 0
+        ]
+        if not batch:
+            return {}
+        proposals = self.proposer.propose(batch)
+        return {seq.seq_id: p for (seq, _), p in zip(batch, proposals, strict=True) if p.tokens}
+
+    def _verify(self, seq: Sequence, prop: Proposal, logits: NDArray[np.floating]) -> RequestOutput:
+        assert self.proposer is not None
+        length_before = seq.num_tokens
+        target_probs = probs_from_logits(logits, seq.params)
+        tokens, accepted = rejection_sample(prop.tokens, prop.probs, target_probs, seq.rng)
+        # K/V written for the accepted draft tokens is now valid; the rest is stale.
+        seq.num_computed_tokens += accepted
+        self.proposer.on_verified(seq, length_before, prop, accepted)
+        self.stats.num_spec_proposed += len(prop.tokens)
+        self.stats.num_spec_accepted += accepted
+        return self._append_tokens(seq, tokens)
 
     def _fork_children(self, parent: Sequence) -> list[Sequence]:
         """Parallel sampling: after the prompt is prefilled once, fork n-1 children
