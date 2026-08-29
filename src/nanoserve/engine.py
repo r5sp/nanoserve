@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import time
+from collections import deque
 from collections.abc import Sequence as Seq
 from dataclasses import dataclass, field
 
@@ -49,6 +50,9 @@ class RequestOutput:
     finish_reason: str | None = None
 
 
+_HISTORY = 100_000
+
+
 @dataclass
 class EngineStats:
     num_steps: int = 0
@@ -58,10 +62,10 @@ class EngineStats:
     num_preemptions: int = 0
     num_spec_proposed: int = 0
     num_spec_accepted: int = 0
-    # Per-step memory accounting: blocks in use vs. tokens actually stored.
-    kv_used_blocks: list[int] = field(default_factory=list)
-    kv_live_tokens: list[int] = field(default_factory=list)
-    batch_sizes: list[int] = field(default_factory=list)
+    # Recent per-step history (bounded so a long-running server does not grow).
+    kv_used_blocks: deque[int] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    kv_live_tokens: deque[int] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    batch_sizes: deque[int] = field(default_factory=lambda: deque(maxlen=_HISTORY))
 
     @property
     def spec_acceptance_rate(self) -> float:
@@ -315,11 +319,3 @@ class LLMEngine:
                 if out.finished and out.index == 0:
                     done[out.request_id] = out.output_token_ids
         return [done[r] for r in rids]
-
-
-def kv_utilization(stats: EngineStats, block_size: int) -> float:
-    """Fraction of allocated KV slots that hold live tokens, averaged over steps."""
-    used = np.asarray(stats.kv_used_blocks, dtype=np.float64) * block_size
-    live = np.asarray(stats.kv_live_tokens, dtype=np.float64)
-    mask = used > 0
-    return float((live[mask] / used[mask]).mean()) if mask.any() else 0.0

@@ -160,6 +160,7 @@ def test_seeded_sampling_is_independent_of_batch_composition(tiny_model: GPT2) -
         + [params]
         + [SamplingParams(temperature=1.0, max_tokens=20)] * 3,
     )[2]
+    assert engine.stats.num_preemptions > 0
     assert mixed == alone
 
 

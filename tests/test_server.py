@@ -133,7 +133,7 @@ def test_concurrent_requests_are_batched(server) -> None:
     for t in threads:
         t.join()
     assert len(results) == 8
-    assert max(app.worker.engine.stats.batch_sizes[before:]) > 1
+    assert max(list(app.worker.engine.stats.batch_sizes)[before:]) > 1
 
 
 def test_bad_requests(server) -> None:
