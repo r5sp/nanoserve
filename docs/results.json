@@ -1,0 +1,186 @@
+{
+  "machine": {
+    "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "python": "3.14.4",
+    "numpy": "2.5.3"
+  },
+  "throughput": {
+    "n_requests": 32,
+    "output_tokens": 2257,
+    "modes": {
+      "sequential (batch=1)": {
+        "seconds": 22.97,
+        "tok_per_s": 98.2
+      },
+      "static batching (batch=8)": {
+        "seconds": 12.43,
+        "tok_per_s": 181.5
+      },
+      "continuous (max_num_seqs=8)": {
+        "seconds": 11.76,
+        "tok_per_s": 191.9
+      },
+      "continuous (max_num_seqs=32)": {
+        "seconds": 10.03,
+        "tok_per_s": 225.0
+      }
+    },
+    "concurrency_curve": [
+      {
+        "concurrency": 1,
+        "tok_per_s": 86.6
+      },
+      {
+        "concurrency": 2,
+        "tok_per_s": 96.6
+      },
+      {
+        "concurrency": 4,
+        "tok_per_s": 139.1
+      },
+      {
+        "concurrency": 8,
+        "tok_per_s": 183.2
+      },
+      {
+        "concurrency": 16,
+        "tok_per_s": 221.0
+      },
+      {
+        "concurrency": 32,
+        "tok_per_s": 225.8
+      },
+      {
+        "concurrency": 64,
+        "tok_per_s": 230.8
+      }
+    ]
+  },
+  "kv_memory": {
+    "block_size": 16,
+    "utilization": {
+      "paged": 0.959,
+      "contiguous_reserve_prompt_plus_max_tokens": 0.755,
+      "contiguous_reserve_max_model_len": 0.131
+    },
+    "fixed_budget": {
+      "token_slots": 4096,
+      "mb_fp32": 288.0,
+      "peak_concurrent_paged": 40,
+      "concurrent_contiguous_max_tokens": 25,
+      "concurrent_contiguous_max_model_len": 4,
+      "preemptions_paged": 27
+    }
+  },
+  "prefix_caching": {
+    "shared_prefix_tokens": 225,
+    "n_requests": 16,
+    "no_prefix_caching": {
+      "seconds": 7.44,
+      "prefill_tokens_computed": 3728
+    },
+    "prefix_caching": {
+      "seconds": 2.99,
+      "prefill_tokens_computed": 1040
+    }
+  },
+  "speculative": {
+    "target": "gpt2-medium (355M)",
+    "max_tokens": 96,
+    "n_prompts": 4,
+    "runs": [
+      {
+        "temperature": 0.0,
+        "method": "baseline",
+        "tok_per_s": 37.6,
+        "speedup": 1.0,
+        "tokens_per_target_forward": 1.0,
+        "acceptance_rate": null,
+        "identical_to_baseline": true
+      },
+      {
+        "temperature": 0.0,
+        "method": "draft gpt2 (124M), k=2",
+        "tok_per_s": 38.0,
+        "speedup": 1.01,
+        "tokens_per_target_forward": 2.63,
+        "acceptance_rate": 0.847,
+        "identical_to_baseline": true
+      },
+      {
+        "temperature": 0.0,
+        "method": "draft gpt2 (124M), k=4",
+        "tok_per_s": 43.5,
+        "speedup": 1.16,
+        "tokens_per_target_forward": 3.76,
+        "acceptance_rate": 0.744,
+        "identical_to_baseline": true
+      },
+      {
+        "temperature": 0.0,
+        "method": "n-gram lookup, k=2",
+        "tok_per_s": 44.5,
+        "speedup": 1.18,
+        "tokens_per_target_forward": 1.92,
+        "acceptance_rate": 0.674,
+        "identical_to_baseline": true
+      },
+      {
+        "temperature": 0.0,
+        "method": "n-gram lookup, k=4",
+        "tok_per_s": 41.2,
+        "speedup": 1.1,
+        "tokens_per_target_forward": 2.21,
+        "acceptance_rate": 0.541,
+        "identical_to_baseline": true
+      },
+      {
+        "temperature": 0.8,
+        "method": "baseline",
+        "tok_per_s": 37.1,
+        "speedup": 1.0,
+        "tokens_per_target_forward": 1.0,
+        "acceptance_rate": null
+      },
+      {
+        "temperature": 0.8,
+        "method": "draft gpt2 (124M), k=2",
+        "tok_per_s": 31.0,
+        "speedup": 0.84,
+        "tokens_per_target_forward": 2.23,
+        "acceptance_rate": 0.639
+      },
+      {
+        "temperature": 0.8,
+        "method": "draft gpt2 (124M), k=4",
+        "tok_per_s": 31.9,
+        "speedup": 0.86,
+        "tokens_per_target_forward": 3.1,
+        "acceptance_rate": 0.557
+      },
+      {
+        "temperature": 0.8,
+        "method": "n-gram lookup, k=2",
+        "tok_per_s": 28.8,
+        "speedup": 0.78,
+        "tokens_per_target_forward": 1.14,
+        "acceptance_rate": 0.176
+      },
+      {
+        "temperature": 0.8,
+        "method": "n-gram lookup, k=4",
+        "tok_per_s": 26.9,
+        "speedup": 0.73,
+        "tokens_per_target_forward": 1.11,
+        "acceptance_rate": 0.069
+      }
+    ],
+    "verify_cost_vs_decode": {
+      "2_tokens": 1.86,
+      "3_tokens": 1.94,
+      "5_tokens": 2.13
+    },
+    "draft_cost_vs_target_decode": 0.31
+  }
+}
