@@ -4,17 +4,11 @@ import pytest
 
 from nanoserve.tokenizer import IncrementalDetokenizer, Tokenizer, bytes_to_unicode
 from nanoserve.weights import is_downloaded, load_tokenizer
+from tests.helpers import toy_tokenizer
 
 
 def _toy_tokenizer() -> Tokenizer:
-    """Byte-level vocab (256 symbols) plus a handful of merges."""
-    b2u = bytes_to_unicode()
-    encoder = {c: i for i, c in enumerate(b2u.values())}
-    merges = [("Ġ", "t"), ("h", "e"), ("Ġt", "he"), ("l", "l"), ("e", "ll"), ("Ġ", "w")]
-    for a, b in merges:
-        encoder[a + b] = len(encoder)
-    encoder["<|endoftext|>"] = len(encoder)
-    return Tokenizer(encoder, merges)
+    return toy_tokenizer()
 
 
 def test_bytes_to_unicode_is_a_bijection() -> None:
